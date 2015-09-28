@@ -1,0 +1,869 @@
+package dsi.kvmodel.sam;
+
+import java.io.BufferedInputStream;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.StringTokenizer;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hbase.Cell;
+import org.apache.hadoop.hbase.HBaseConfiguration;
+import org.apache.hadoop.hbase.HColumnDescriptor;
+import org.apache.hadoop.hbase.HTableDescriptor;
+import org.apache.hadoop.hbase.client.Get;
+import org.apache.hadoop.hbase.client.HBaseAdmin;
+import org.apache.hadoop.hbase.client.HTable;
+import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.client.Result;
+import org.apache.hadoop.hbase.client.ResultScanner;
+import org.apache.hadoop.hbase.client.Scan;
+import org.apache.hadoop.hbase.util.Bytes;
+
+
+public class HBaseSAM {
+
+	private static final String COL_FAMILY_HEADER = "header";
+	private static final String COL_FAMILY_ALIGN = "align";
+	private static final String COL_FAMILY_OPT = "opt";
+	private static final String COL_FAMILY_CIGAR = "cigar";
+	
+	private static final byte[] BCOL_FAMILY_HEADER = Bytes.toBytes(COL_FAMILY_HEADER);
+	private static final byte[] BCOL_FAMILY_ALIGN = Bytes.toBytes(COL_FAMILY_ALIGN);
+	private static final byte[] BCOL_FAMILY_OPT = Bytes.toBytes(COL_FAMILY_OPT);
+	private static final byte[] BCOL_FAMILY_CIGAR = Bytes.toBytes(COL_FAMILY_CIGAR);
+	
+	private static final String QNAME 		= "qname";
+	private static final String FLAG	 	= "flag";
+	private static final String RNAME 		= "rname";
+	private static final String POS 		= "pos";
+	private static final String MAPQ 		= "mapq";
+	private static final String CIGAR	 	= "cigar";
+	private static final String RNEXT 		= "rnext";
+	private static final String PNEXT	 	= "pnext";
+	private static final String TLEN	 	= "tlen";
+	private static final String SEQ		 	= "seq";
+	private static final String QUAL 		= "qual";
+	
+	private static final byte[] BQNAME 		= Bytes.toBytes("qname");
+	private static final byte[] BFLAG	 	= Bytes.toBytes("flag");
+	private static final byte[] BRNAME 		= Bytes.toBytes("rname");
+	private static final byte[] BPOS 		= Bytes.toBytes("pos");
+	private static final byte[] BMAPQ 		= Bytes.toBytes("mapq");
+	private static final byte[] BCIGAR	 	= Bytes.toBytes("cigar");
+	private static final byte[] BRNEXT 		= Bytes.toBytes("rnext");
+	private static final byte[] BPNEXT	 	= Bytes.toBytes("pnext");
+	private static final byte[] BTLEN	 	= Bytes.toBytes("tlen");
+	private static final byte[] BSEQ		= Bytes.toBytes("seq");
+	private static final byte[] BQUAL 		= Bytes.toBytes("qual");
+	
+	
+
+	private Configuration config;
+	private HBaseAdmin hadmin;
+	private HTable shortQnameTable;
+	private HTable shortPosTable;
+	private HTable shortCrossTable;
+	private HTable longPosStartTable;
+	private HTable longPosEndTable;
+	private HTable longCrossStartTable;
+	private HTable longCrossEndTable;
+
+	public HBaseSAM(String tablename) {
+
+		config = HBaseConfiguration.create();
+		try {
+			shortQnameTable 	= new HTable(config, tablename + "-shortQnameTable");
+			shortPosTable 		= new HTable(config, tablename + "-shortPosTable");
+			shortCrossTable 	= new HTable(config, tablename + "-shortCrossTable");
+			longPosStartTable 	= new HTable(config, tablename + "-longPosStartTable");	
+			longPosEndTable 	= new HTable(config, tablename + "-longPosEndTable");
+			longCrossStartTable = new HTable(config, tablename + "-longCrossStartTable");
+			longCrossEndTable 	= new HTable(config, tablename + "-longCrossEndTable");
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	public void init(String tablename) {
+		// create the microarray table
+		try {
+			config = HBaseConfiguration.create();
+			hadmin = new HBaseAdmin(config);
+			HTableDescriptor shortQnameDesc 		= new HTableDescriptor (tablename + "-shortQnameTable");
+			HTableDescriptor shortPosDesc 			= new HTableDescriptor (tablename + "-shortPosTable");
+			HTableDescriptor shortCrossDesc 		= new HTableDescriptor (tablename + "-shortCrossTable");
+			HTableDescriptor longPosStartDesc 		= new HTableDescriptor (tablename + "-longPosStartTable");	
+			HTableDescriptor longPosEndDesc 		= new HTableDescriptor (tablename + "-longPosEndTable");
+			HTableDescriptor longCrossStartDesc 	= new HTableDescriptor (tablename + "-longCrossStartTable");
+			HTableDescriptor longCrossEndDesc 		= new HTableDescriptor (tablename + "-longCrossEndTable");
+			
+			HColumnDescriptor headerColDesc = new HColumnDescriptor(COL_FAMILY_HEADER);			
+			HColumnDescriptor alignColDesc = new HColumnDescriptor(COL_FAMILY_ALIGN);
+			HColumnDescriptor optColDesc = new HColumnDescriptor(COL_FAMILY_OPT);
+			HColumnDescriptor cigarColDesc = new HColumnDescriptor(COL_FAMILY_CIGAR);
+			
+			shortQnameDesc.addFamily(headerColDesc);
+			shortPosDesc.addFamily(headerColDesc); 		
+			shortCrossDesc.addFamily(headerColDesc);
+			longPosStartDesc.addFamily(headerColDesc);
+			longPosEndDesc.addFamily(headerColDesc);
+			longCrossStartDesc.addFamily(headerColDesc);
+			longCrossEndDesc.addFamily(headerColDesc);
+			
+			shortQnameDesc.addFamily(alignColDesc);
+			shortPosDesc.addFamily(alignColDesc);
+			shortCrossDesc.addFamily(alignColDesc);
+			longPosStartDesc.addFamily(alignColDesc);
+			longPosEndDesc.addFamily(alignColDesc);
+			longCrossStartDesc.addFamily(alignColDesc);
+			longCrossEndDesc.addFamily(alignColDesc);
+
+			shortQnameDesc.addFamily(optColDesc);
+			shortPosDesc.addFamily(optColDesc);
+			shortCrossDesc.addFamily(optColDesc);
+			longPosStartDesc.addFamily(optColDesc);
+			longPosEndDesc.addFamily(optColDesc);
+			longCrossStartDesc.addFamily(optColDesc);
+			longCrossEndDesc.addFamily(optColDesc);
+			
+			shortQnameDesc.addFamily(cigarColDesc);
+			shortPosDesc.addFamily(cigarColDesc);
+			shortCrossDesc.addFamily(cigarColDesc);
+			longPosStartDesc.addFamily(cigarColDesc);
+			longPosEndDesc.addFamily(cigarColDesc);
+			longCrossStartDesc.addFamily(cigarColDesc);
+			longCrossEndDesc.addFamily(cigarColDesc);
+
+			if (!hadmin.tableExists(tablename + "-shortQnameTable"))
+				hadmin.createTable(shortQnameDesc);
+			if (!hadmin.tableExists(tablename + "-shortPosTable"))
+				hadmin.createTable(shortPosDesc);
+			if (!hadmin.tableExists(tablename + "-shortCrossTable"))
+				hadmin.createTable(shortCrossDesc);
+			if (!hadmin.tableExists(tablename + "-longPosStartTable"))
+				hadmin.createTable(longPosStartDesc);
+			if (!hadmin.tableExists(tablename + "-longPosEndTable"))
+				hadmin.createTable(longPosEndDesc);
+			if (!hadmin.tableExists(tablename + "-longCrossStartTable"))
+				hadmin.createTable(longCrossStartDesc);
+			if (!hadmin.tableExists(tablename + "-longCrossEndTable"))
+				hadmin.createTable(longCrossEndDesc);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	public void insert2ShortTable(String trial, String filename) {
+
+		BufferedReader br = null;
+		String str = null;
+		System.out.println(filename);
+		long ts1 = System.currentTimeMillis();
+		System.out.println("start inserting short QNAME table at " + ts1);
+
+		int count = 0;
+		try {				
+		
+			List<String> subList = new ArrayList<String>();
+			List<Put> qnamePutList = new ArrayList<Put>();
+			List<Put> posPutList = new ArrayList<Put>();
+			List<Put> crossPutList = new ArrayList<Put>();
+			br = new BufferedReader(new FileReader(new File(filename)));
+			while ((str = br.readLine()) != null) {
+				StringTokenizer tokenizer = new StringTokenizer(str, "\t");
+				String qname = tokenizer.nextToken();
+				if (qname.startsWith("@")) {
+					// header
+					Put p = new Put(Bytes.toBytes(trial + qname));
+					while (tokenizer.hasMoreTokens()) {
+						String headStr = tokenizer.nextToken();
+						p.add(BCOL_FAMILY_HEADER,
+								Bytes.toBytes(headStr.substring(0,
+										headStr.indexOf(':'))),
+								Bytes.toBytes(headStr.substring(
+										headStr.indexOf(':') + 1,
+										headStr.length())));
+					}
+					qnamePutList.add(p);
+					posPutList.add(p);
+					crossPutList.add(p);
+					count ++;
+				} else {
+					// alignment
+					String flag = tokenizer.nextToken();
+					String rname = tokenizer.nextToken();
+					long pos = Long.parseLong(tokenizer.nextToken());
+					String mapq = tokenizer.nextToken();
+					String cigar = tokenizer.nextToken();
+					String rnext = tokenizer.nextToken();
+					String pnext = tokenizer.nextToken();
+					long tlen = Long.parseLong(tokenizer.nextToken());
+					String seq = tokenizer.nextToken();
+					String qual = tokenizer.nextToken();
+					String opt = tokenizer.nextToken();
+					
+					long end;
+					if (cigar.equals("*"))
+						end = pos;
+					else
+						end = pos + getPaddedReferenceLength(cigar);
+					
+					String qnameRow = trial + "+" + qname;
+					qnamePutList
+					.add(getPut(qnameRow, qname, flag, rname, pos,
+							mapq, cigar, rnext, pnext, tlen, seq,
+							qual, opt));
+					
+					String posRow = trial + "+" + rname + "+" + String.format("%09d", pos) + "+" + qname;
+					posPutList
+					.add(getPut(posRow, flag,
+							mapq, cigar, rnext, pnext, tlen, seq,
+							qual, opt));
+					
+					String crossRow = rname + "+" + String.format("%09d", pos) + "+" + trial + "+" + qname;
+					crossPutList
+					.add(getPut(crossRow, flag,
+							mapq, cigar, rnext, pnext, tlen, seq,
+							qual, opt));
+					
+					if (qnamePutList.size() >= 1000) {
+						shortQnameTable.put(qnamePutList);
+						qnamePutList.clear();
+						shortPosTable.put(posPutList);
+						posPutList.clear();
+						shortCrossTable.put(crossPutList);
+						crossPutList.clear();
+					}
+					
+					count ++;
+					if (count % 20000 == 0) {
+						System.out.println("count " + count);
+						System.gc();
+					}
+				}
+			}
+			shortQnameTable.put(qnamePutList);
+			qnamePutList.clear();
+			shortPosTable.put(posPutList);
+			posPutList.clear();
+			shortCrossTable.put(crossPutList);
+			crossPutList.clear();
+			long ts2 = System.currentTimeMillis();
+			System.out.println("finish time is " + (ts2 - ts1));
+			
+		} catch (FileNotFoundException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} finally {
+			System.out.println("final count is " + count);
+			try {
+				br.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}	
+		}
+	}
+	
+	
+	public void insert2ShortPosTable(String trial, String filename) {
+
+		BufferedReader br = null;
+		String str = null;
+		System.out.println(filename);
+		long ts1 = System.currentTimeMillis();
+		System.out.println("start inserting short QNAME table at " + ts1);
+
+		int count = 0;
+		try {				
+			List<Put> posPutList = new ArrayList<Put>();
+			br = new BufferedReader(new FileReader(new File(filename)));
+			while ((str = br.readLine()) != null) {
+				StringTokenizer tokenizer = new StringTokenizer(str, "\t");
+				String qname = tokenizer.nextToken();
+				if (qname.startsWith("@")) {
+					// header
+					Put p = new Put(Bytes.toBytes(trial + qname));
+					while (tokenizer.hasMoreTokens()) {
+						String headStr = tokenizer.nextToken();
+						p.add(BCOL_FAMILY_HEADER,
+								Bytes.toBytes(headStr.substring(0,
+										headStr.indexOf(':'))),
+								Bytes.toBytes(headStr.substring(
+										headStr.indexOf(':') + 1,
+										headStr.length())));
+					}
+					//qnamePutList.add(p);
+					posPutList.add(p);
+					//crossPutList.add(p);
+					count ++;
+				} else {
+					// alignment
+					String flag = tokenizer.nextToken();
+					String rname = tokenizer.nextToken();
+					long pos = Long.parseLong(tokenizer.nextToken());
+					String mapq = tokenizer.nextToken();
+					String cigar = tokenizer.nextToken();
+					String rnext = tokenizer.nextToken();
+					String pnext = tokenizer.nextToken();
+					long tlen = Long.parseLong(tokenizer.nextToken());
+					String seq = tokenizer.nextToken();
+					String qual = tokenizer.nextToken();
+					String opt = tokenizer.nextToken();
+					
+					long end;
+					if (cigar.equals("*"))
+						end = pos;
+					else
+						end = pos + getPaddedReferenceLength(cigar);
+					
+					
+					
+					
+					String posRow = trial + "+" + rname + "+" + String.format("%09d", pos) + "+" + qname;
+					posPutList
+					.add(getPut(posRow, flag,
+							mapq, cigar, rnext, pnext, tlen, seq,
+							qual, opt));
+					
+					
+					
+					if (posPutList.size() >= 1000) {
+						
+						shortPosTable.put(posPutList);
+						posPutList.clear();
+	
+					}
+					
+					count ++;
+					if (count % 20000 == 0) {
+						System.out.println("count " + count);
+						System.gc();
+					}
+				}
+			}
+
+			shortPosTable.put(posPutList);
+			posPutList.clear();
+			
+			long ts2 = System.currentTimeMillis();
+			System.out.println("finish time is " + (ts2 - ts1));
+			
+		} catch (FileNotFoundException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} finally {
+			System.out.println(filename + " final count is " + count);
+			try {
+				br.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}	
+		}
+	}
+	
+	
+	private Put getPut(String row, String qname, String flag, String rname, long pos,
+			String mapq, String cigar, String rnext, String pnext, long tlen,
+			String seq, String qual, String opt){
+		Put qnamePut = new Put(Bytes.toBytes(row));
+		qnamePut.add(BCOL_FAMILY_ALIGN, BFLAG	, Bytes.toBytes(flag));
+		qnamePut.add(BCOL_FAMILY_ALIGN, BRNAME  , Bytes.toBytes(rname));
+		qnamePut.add(BCOL_FAMILY_ALIGN, BPOS 	, Bytes.toBytes(pos));
+		qnamePut.add(BCOL_FAMILY_ALIGN, BMAPQ 	, Bytes.toBytes(mapq));
+		qnamePut.add(BCOL_FAMILY_ALIGN, BCIGAR	, Bytes.toBytes(cigar));
+		qnamePut.add(BCOL_FAMILY_ALIGN, BRNEXT  , Bytes.toBytes(rnext));
+		qnamePut.add(BCOL_FAMILY_ALIGN, BPNEXT	, Bytes.toBytes(pnext));
+		qnamePut.add(BCOL_FAMILY_ALIGN, BTLEN	, Bytes.toBytes(tlen));
+		qnamePut.add(BCOL_FAMILY_ALIGN, BSEQ	, Bytes.toBytes(seq));
+		qnamePut.add(BCOL_FAMILY_ALIGN, BQUAL 	, Bytes.toBytes(qual));
+		StringTokenizer optToken = new StringTokenizer(opt, "\t");
+		while (optToken.hasMoreTokens()) {
+			String optStr = optToken.nextToken();
+			qnamePut.add(BCOL_FAMILY_OPT,
+					Bytes.toBytes(optStr.substring(0,
+							optStr.indexOf(':'))),
+					Bytes.toBytes(optStr.substring(
+							optStr.indexOf(':') + 1,
+							optStr.length())));
+		}// while
+		return qnamePut;
+	}
+
+	private Put getPut(String row, String flag, 
+			String mapq, String cigar, String rnext, String pnext, long tlen,
+			String seq, String qual, String opt){
+		Put qnamePut = new Put(Bytes.toBytes(row));
+		qnamePut.add(BCOL_FAMILY_ALIGN, BFLAG	, Bytes.toBytes(flag));
+		qnamePut.add(BCOL_FAMILY_ALIGN, BMAPQ 	, Bytes.toBytes(mapq));
+		qnamePut.add(BCOL_FAMILY_CIGAR, BCIGAR	, Bytes.toBytes(cigar));
+		qnamePut.add(BCOL_FAMILY_ALIGN, BRNEXT  , Bytes.toBytes(rnext));
+		qnamePut.add(BCOL_FAMILY_ALIGN, BPNEXT	, Bytes.toBytes(pnext));
+		qnamePut.add(BCOL_FAMILY_ALIGN, BTLEN	, Bytes.toBytes(tlen));
+		qnamePut.add(BCOL_FAMILY_ALIGN, BSEQ	, Bytes.toBytes(seq));
+		qnamePut.add(BCOL_FAMILY_ALIGN, BQUAL 	, Bytes.toBytes(qual));
+		StringTokenizer optToken = new StringTokenizer(opt, "\t");
+		while (optToken.hasMoreTokens()) {
+			String optStr = optToken.nextToken();
+			qnamePut.add(BCOL_FAMILY_OPT,
+					Bytes.toBytes(optStr.substring(0,
+							optStr.indexOf(':'))),
+					Bytes.toBytes(optStr.substring(
+							optStr.indexOf(':') + 1,
+							optStr.length())));
+		}// while
+		return qnamePut;
+	}
+	
+	/**
+     * @return The number of reference bases that the read covers, including padding.
+     */
+    private static int getPaddedReferenceLength(String cigar) {  	
+    	cigar = cigar.replace('=', 'E');
+		int i = 0;
+		int length = 0;
+		while (i < cigar.length()) {
+			if (cigar.charAt(i) > '9') {
+				switch (cigar.charAt(i)) {
+				case 'M':
+				case 'D':
+				case 'N':
+				case 'E':
+				case 'X':
+				case 'P':
+					length += Integer.parseInt(cigar.substring(0, i));
+				}
+				cigar = cigar.substring(i + 1);
+				i = 0;
+			}
+			i++;
+		}
+        return length;
+    }
+    
+    /**
+     * @return The number of reference bases that the read covers, including padding.
+     */
+    private static int getReferenceLength(String cigar) {  	
+    	cigar = cigar.replace('=', 'E');
+		int i = 0;
+		int length = 0;
+		while (i < cigar.length()) {
+			if (cigar.charAt(i) > '9') {
+				switch (cigar.charAt(i)) {
+				case 'M':
+				case 'D':
+				case 'N':
+				case 'E':
+				case 'X':
+					length += Integer.parseInt(cigar.substring(0, i));
+				}
+				cigar = cigar.substring(i + 1);
+				i = 0;
+			}
+			i++;
+		}
+        return length;
+    }
+    
+    public void overlappingScan(String trial, String rname, long start, long end) {
+    	// default cache is 10000 rows
+    	overlappingScan(trial, rname, start, end, 10000);
+    }
+    
+    public void overlappingScan(String trial, String rname, long start, long end, int cache) {
+		// only add family
+
+		Scan s = new Scan();
+		s.addFamily(Bytes.toBytes(COL_FAMILY_ALIGN));
+		/*
+		 * for (String qualifier : filterList) {
+		 * 		s.addColumn(Bytes.toBytes(COL_FAMILY_RAW), Bytes.toBytes(qualifier));
+		 * }
+		 */
+
+		s.setCacheBlocks(true);
+		s.setCaching(cache);
+		String startRow = trial + "+" + rname + "+" + String.format("%09d", start);
+		String endRow = trial + "+" + rname + "+" + String.format("%09d", end);
+		s.setStartRow(Bytes.toBytes(startRow));
+		s.setStopRow(Bytes.toBytes(endRow));
+		// s.addColumn(Bytes.toBytes(COL_FAMILY_INFO),
+		// Bytes.toBytes(PATIENT_ID));
+		ResultScanner scanner = null;
+
+		long count = 0;
+		try {
+			scanner = shortPosTable.getScanner(s);
+			// Scanners return Result instances.
+			// Now, for the actual iteration. One way is to use a while loop
+			// like so:
+			long ts1 = System.currentTimeMillis();
+			for (Result rr = scanner.next(); rr != null; rr = scanner.next()) {
+				// print out the row we found and the columns we were
+				// looking for
+				// System.out.println("Found row: " + rr);;
+				int psnum = 0;
+				for (Cell kv : rr.rawCells()) {
+					psnum++;
+					// each kv represents a column
+					// System.out.println(Bytes.toString(kv.getRowArray()));
+					// System.out.println(Bytes.toString(CellUtil.cloneQualifier(kv)));
+					// System.out.println(Bytes.toString(CellUtil.cloneValue(kv)));
+				}
+
+				count++;
+				if (count % 1000 == 0)
+					System.out.println(count);
+				// cache 10000 = 23303ms
+				// cache 50000 = 29538ms
+			}
+			System.out.println("time is " + (System.currentTimeMillis() - ts1));
+			System.out.println("total amount is " + count);
+			// The other approach is to use a foreach loop. Scanners are
+			// iterable!
+			// for (Result rr : scanner) {
+			// System.out.println("Found row: " + rr);
+			// }
+		} catch (IOException e) {
+			e.printStackTrace();
+		} finally {
+			// Make sure you close your scanners when you are done!
+			// Thats why we have it inside a try/finally clause
+			scanner.close();
+		}
+    }
+    
+    public void randomRead () {
+    	Get get = new Get(Bytes.toBytes("hg097ch11+" + "SRR741385.31127350"));
+    	try {
+    		int psnum = 0;
+			Result result = shortQnameTable.get(get);
+			for (Cell kv : result.rawCells()) {
+				psnum++;
+				// each kv represents a column
+				System.out.println(Bytes.toString(kv.getRowArray()));
+				//System.out.println(Bytes.toString(CellUtil.cloneQualifier(kv)));
+				//System.out.println(Bytes.toString(CellUtil.cloneValue(kv)));
+			}
+		} catch (IOException e) {
+			System.out.println("row cannot found");
+			e.printStackTrace();
+		}
+    }
+    
+	public void count() {
+		// only add family
+
+		Scan s = new Scan();
+		s.addFamily(Bytes.toBytes(COL_FAMILY_ALIGN));
+		/*
+		 * for (String qualifier : filterList) {
+		 * s.addColumn(Bytes.toBytes(COL_FAMILY_RAW), Bytes.toBytes(qualifier));
+		 * }
+		 */
+
+		s.setCacheBlocks(true);
+		s.setCaching(5000);
+		s.setStartRow(Bytes.toBytes("hg097"));
+		s.setStopRow(Bytes.toBytes("hg098"));
+		// s.addColumn(Bytes.toBytes(COL_FAMILY_INFO),
+		// Bytes.toBytes(PATIENT_ID));
+		ResultScanner scanner = null;
+
+		long count = 0;
+		try {
+			scanner = shortQnameTable.getScanner(s);
+			// Scanners return Result instances.
+			// Now, for the actual iteration. One way is to use a while loop
+			// like so:
+			long ts1 = System.currentTimeMillis();
+			for (Result rr = scanner.next(); rr != null; rr = scanner.next()) {
+				// print out the row we found and the columns we were
+				// looking for
+				// System.out.println("Found row: " + rr);;
+				int psnum = 0;
+				for (Cell kv : rr.rawCells()) {
+					psnum++;
+					// each kv represents a column
+					// System.out.println(Bytes.toString(kv.getRowArray()));
+					// System.out.println(Bytes.toString(CellUtil.cloneQualifier(kv)));
+					// System.out.println(Bytes.toString(CellUtil.cloneValue(kv)));
+				}
+
+				count++;
+				if (count % 10000 == 0)
+					System.out.println(count);
+				// cache 1000 = 31.661s / 18.13s 16.052
+				// cache 500 = 31.554s
+				// cache 5000 = 35.208s
+			}
+			System.out.println("time is " + (System.currentTimeMillis() - ts1));
+			System.out.println("total amount is " + count);
+			// The other approach is to use a foreach loop. Scanners are
+			// iterable!
+			// for (Result rr : scanner) {
+			// System.out.println("Found row: " + rr);
+			// }
+		} catch (IOException e) {
+			e.printStackTrace();
+		} finally {
+			// Make sure you close your scanners when you are done!
+			// Thats why we have it inside a try/finally clause
+			scanner.close();
+		}
+
+	}
+    
+    public static void scanReferenceLength(String inputFile) {
+		BufferedReader br = null;
+		String str = null;
+		System.out.println("Input file name: " + inputFile);
+		long ts1 = System.currentTimeMillis();
+		System.out.println("start inserting short QNAME table at " + ts1);
+		int length = 0;
+		int count = 0;
+		try {				
+		
+			List<String> subList = new ArrayList<String>();
+			List<Put> qnamePutList = new ArrayList<Put>();
+			//List<Put> longPutList = new ArrayList<Put>();
+			br = new BufferedReader(new FileReader(new File(inputFile)));
+			while ((str = br.readLine()) != null) {
+				StringTokenizer tokenizer = new StringTokenizer(str, "\t");
+				String qname = tokenizer.nextToken();
+				if (qname.startsWith("@")) {
+					// header
+					continue;
+				} else {
+					// alignment
+					String flag = tokenizer.nextToken();
+					String rname = tokenizer.nextToken();
+					long pos = Long.parseLong(tokenizer.nextToken());
+					String mapq = tokenizer.nextToken();
+					String cigar = tokenizer.nextToken();
+					String rnext = tokenizer.nextToken();
+					String pnext = tokenizer.nextToken();
+					long tlen = Long.parseLong(tokenizer.nextToken());
+					String seq = tokenizer.nextToken();
+					String qual = tokenizer.nextToken();
+					String opt = tokenizer.nextToken();
+					
+					if(cigar.equals("*"))
+						continue;
+					
+					int cigarLen = getPaddedReferenceLength(cigar);
+					
+					length = (cigarLen > length) ? cigarLen : length;
+						
+				}
+				
+			}
+			System.out.println(length);
+			long ts2 = System.currentTimeMillis();
+			System.out.println("finish time is " + (ts2 - ts1));
+			
+		} catch (FileNotFoundException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} finally {
+			System.out.println("final count is " + count);
+			try {
+				br.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}	
+		}
+	
+    }
+
+    private class MultipleReader implements Runnable {
+		private String startRow;
+		private String endRow;
+		private int cacheSize;
+		public MultipleReader (String start, String end, int cache) {
+			this.startRow = start;
+			this.endRow = end;
+			this.cacheSize = cache;
+		}
+		public void run() {
+			// only add family
+			long t1 = System.currentTimeMillis();
+			Scan s = new Scan();
+			s.addFamily(Bytes.toBytes(COL_FAMILY_CIGAR));
+			/*
+			 * for (String qualifier : filterList) {
+			 * s.addColumn(Bytes.toBytes(COL_FAMILY_RAW), Bytes.toBytes(qualifier));
+			 * }
+			 */
+			
+			s.setCacheBlocks(true);
+			s.setCaching(this.cacheSize);
+			s.setStartRow(Bytes.toBytes(this.startRow));
+			s.setStopRow(Bytes.toBytes(this.endRow));
+			
+			System.out.println("start row is " + startRow);
+			System.out.println("end row is " + endRow);
+			
+			// s.addColumn(Bytes.toBytes(COL_FAMILY_INFO),
+			// Bytes.toBytes(PATIENT_ID));
+			ResultScanner scanner = null;
+
+			long count = 0;
+			try {
+				scanner = shortPosTable.getScanner(s);
+				// Scanners return Result instances.
+				// Now, for the actual iteration. One way is to use a while loop
+				// like so:
+				for (Result rr = scanner.next(); rr != null; rr = scanner.next()) {
+					// print out the row we found and the columns we were
+					// looking for
+					// System.out.println("Found row: " + rr);;
+					int psnum = 0;
+					for (Cell kv : rr.rawCells()) {
+						psnum++;
+						// each kv represents a column
+						// System.out.println(Bytes.toString(kv.getRowArray()));
+						// System.out.println(Bytes.toString(CellUtil.cloneQualifier(kv)));
+						// System.out.println(Bytes.toString(CellUtil.cloneValue(kv)));
+					}
+
+					count++;
+					//if (count % 10000 == 0)
+					//	System.out.println(count);
+					// cache 1000 = 31.661s / 18.13s 16.052
+					// cache 500 = 31.554s
+					// cache 5000 = 35.208s
+				}
+				
+				System.out.println("total amount is " + count);
+				System.out.println("scan time is " + (System.currentTimeMillis() - t1));
+				System.out.println("end time is " + System.currentTimeMillis());
+				// The other approach is to use a foreach loop. Scanners are
+				// iterable!
+				// for (Result rr : scanner) {
+				// System.out.println("Found row: " + rr);
+				// }
+			} catch (IOException e) {
+				e.printStackTrace();
+			} finally {
+				// Make sure you close your scanners when you are done!
+				// Thats why we have it inside a try/finally clause
+				scanner.close();
+			}
+		}
+	}
+	
+    
+	public void conScan(String dataset, String rname, long regionLen,
+			int threadNum, int cache) {
+		long regionStart = 50000000 / threadNum;
+		long start, end;
+		for (int i = 0; i < threadNum; i++) {
+			start = regionStart * i;
+			end = start + regionLen;
+			String startRow = dataset + "+" + rname + "+" + String.format("%09d", start);
+			String endRow = dataset + "+" + rname + "+" + String.format("%09d", end);
+			Runnable r = new MultipleReader(startRow, endRow, cache);
+			Thread t = new Thread(r);
+			t.start();
+		}
+		/*
+		BufferedReader br = null;
+		String str = null;
+		try {
+			br = new BufferedReader(new FileReader(new File(filename)));
+			while ((str = br.readLine()) != null) {
+				StringTokenizer token = new StringTokenizer(str, ",");
+				while(token.hasMoreTokens()) {
+					String dataset = token.nextToken();
+					String rname = token.nextToken();
+					String start = String.format("%09d", Long.parseLong(token.nextToken()));
+					String end = String.format("%09d", Long.parseLong(token.nextToken()));
+					String startRow = dataset + "+" + rname + "+" + start;
+					String endRow = dataset + "+" + rname + "+" + end;
+					Runnable r = new MultipleReader(startRow, endRow);
+					Thread t = new Thread(r);
+					t.start();
+				}
+			}
+		} catch (FileNotFoundException e1) {
+			e1.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} finally {
+			try {
+				br.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}*/
+	}
+	
+	
+	
+
+	
+	/**
+	 * @param args
+	 */
+	public static void main(String[] args) {
+		System.out.println("start time: " + System.currentTimeMillis());
+		if (args.length < 1) {
+			System.out.println("please input an argument");
+			System.out
+					.println("init for create a new table with a family info");
+			System.out
+					.println("scan for scan a table and you also need input the table name, start row name, stop row name, patient number");
+			System.out.println("insert for insert data into the table, parameter table name");
+			System.out.println("get for getting record");
+			return;
+		}
+		if (args[0].equals("init")) {
+			HBaseSAM hbasetm = new HBaseSAM(args[1]);
+			hbasetm.init(args[1]);
+		} else if (args[0].equals("insert")) {
+			HBaseSAM hbasetm = new HBaseSAM(args[1]);
+			hbasetm.insert2ShortTable(args[2], args[3]);
+		} else if (args[0].equals("insertPos")) {
+			HBaseSAM hbasetm = new HBaseSAM(args[1]);
+			hbasetm.insert2ShortPosTable(args[2], args[3]);
+		} else if (args[0].equals("alllength")) {
+			HBaseSAM.scanReferenceLength(args[1]);
+		} else if (args[0].equals("randomread")) {
+			HBaseSAM hbasetm = new HBaseSAM(args[1]);
+			hbasetm.randomRead();
+		} else if (args[0].equals("count")) {
+			HBaseSAM hbasetm = new HBaseSAM(args[1]);
+			hbasetm.count();
+		} else if (args[0].equals("scan")) {
+			HBaseSAM hbasetm = new HBaseSAM(args[1]);
+			hbasetm.overlappingScan(args[2], args[3], Long.parseLong(args[4]), Long.parseLong(args[5]), Integer.parseInt(args[6]));
+		} else if (args[0].equals("conscan")) {
+			HBaseSAM hbasetm = new HBaseSAM(args[1]);
+			hbasetm.conScan(args[2], args[3], Long.parseLong(args[4]), Integer.parseInt(args[5]), Integer.parseInt(args[6]));
+		} else {
+			System.out.println("please input an argument");
+			System.out
+					.println("init for create a new table with a family info");
+			System.out
+					.println("scanBySubject for scan a table and you also need input the table name, start row name, stop row name, maximum patient number");
+			System.out
+			.println("scanByProbe for scan a table and you also need input the table name, start row name, stop row name, maximum probe number, cache size, patient list file");
+			System.out.println("insert for insert data into the table, parameter table name");
+			System.out.println("insertMatrixBySubject for insert data into the table, parameter table name, data file, annotation file, patient file, cache size");
+			System.out.println("insertMatrixByProbe for insert data into the table, parameter table name, data file, annotation file, patient file, cache size");
+			System.out.println("get for getting record");
+			return;
+		}
+		System.out.println("end time: " + System.currentTimeMillis());
+	}
+}
