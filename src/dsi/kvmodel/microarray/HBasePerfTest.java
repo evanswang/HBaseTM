@@ -130,9 +130,9 @@ public class HBasePerfTest {
 					// System.out.println(Bytes.toString(CellUtil.cloneQualifier(kv)));
 					// System.out.println(Bytes.toString(CellUtil.cloneValue(kv)));
 				}
-
+				if (psnum != 54675)
+					System.out.println("Incomplete probe set: " + Bytes.toString(rr.getRow()) + " " + psnum);
 				
-
 				count++;
 				if (count % 5000 == 0)
 					System.out.println(count);
@@ -147,10 +147,27 @@ public class HBasePerfTest {
 
 	}
 
-	public void getRecord(String filename, String prefix) {
+	public void getRecord(String filename) {
 		ArrayList<String> patientList = new ArrayList<String>();
-		// TODO: add subjects to paList
-
+		BufferedReader reader = null;
+		String line = null;
+		try {
+			reader = new BufferedReader(new FileReader(filename));
+			while ((line = reader.readLine()) != null) {
+				patientList.add(line);
+			}
+		} catch (FileNotFoundException e1) {
+			e1.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} finally {
+			try {
+				reader.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+		
 		long count = 0;
 		long ts = System.currentTimeMillis();
 		//List<Get> getlist = new ArrayList<Get>();
@@ -167,8 +184,8 @@ public class HBasePerfTest {
 					psnum++;
 				}
 				if (psnum != 54675)
-					System.out.println(Bytes.toString(r.getRow()) + " " + psnum);
-				System.out.println("result " + count++);
+					System.out.println("getRecord incomplete probe set: " + Bytes.toString(r.getRow()) + " " + psnum);
+				System.out.println("getRecord result " + count++);
 				if (r.isEmpty())
 					System.out.println("no result");
 			}
@@ -193,82 +210,20 @@ public class HBasePerfTest {
 			System.out.println("get for getting record");
 			return;
 		}
+		
 		if (args[0].equals("init")) {
-			HBaseTM.init(args[1]);
-		} else if (args[0].equals("scanBySubject")) {
-			HBaseTM hbasetm = new HBaseTM(args[1]);
+			HBasePerfTest.init(args[1]);
+		} else if (args[0].equals("scan")) {
+			HBasePerfTest hbasetm = new HBasePerfTest(args[1]);
 			hbasetm.tableScan(args[2], args[3], Integer.parseInt(args[4]));
-		} else if (args[0].equals("scanByProbe")) {
-			HBaseTM hbasetm = new HBaseTM(args[1]);
-			hbasetm.tableScan(args[2], args[3], Integer.parseInt(args[4]), Integer.parseInt(args[5]), args[6]);
-		} else if (args[0].equals("insert")) {
-			/*
-			 * parameters
-			 * @tablename, which is also trial name
-			 * @file path, which lists teh absolute path of all csv files
-			 */
-			HBaseTM hbasetm = new HBaseTM(args[1]);
-			BufferedReader filein = null;
-			String line;
-			try {
-				filein = new BufferedReader(new FileReader(args[2]));
-				while ((line = filein.readLine()) != null) {
-					hbasetm.insertMicroarray(args[1], line);
-				}
-			} catch (FileNotFoundException e) {
-				System.out.println("cannot find the file.");
-				e.printStackTrace();
-			} catch (IOException e) {
-				e.printStackTrace();
-			} finally {
-				try {
-					filein.close();
-				} catch (IOException e) {
-					System.out.println("cannot close the file.");
-					e.printStackTrace();
-				}
-			}
-			//hbasetm.insertMicroarray("GSE4382.csv");
-			/*
-			for (int i = 0; i < 5; i++)
-				for (int j = 0; j < 26; j++)
-					hbasetm.insertMicroarray("x" + (char) ('a' + i)
-							+ (char) ('a' + j));
-							*/
-			// System.out.println("x" + (char)('a' + i) + (char)('a' + j));
-
 		} else if (args[0].equals("get")) {
-			HBaseTM hbasetm = new HBaseTM(args[1]);
-			hbasetm.getRecord(args[2], args[3], args[4]);
-		} else if (args[0].equals("randomReadProbe")) {
-			HBaseTM hbasetm = new HBaseTM(args[1]);
-			hbasetm.randomReadProbe(args[2], args[3], Integer.parseInt(args[4]));
-		} else if (args[0].equals("conrandomread")) {
-			HBaseTM hbasetm = new HBaseTM(args[1]);
-			hbasetm.scheduler(args[2], args[3], Integer.parseInt(args[4]));
-		} else if (args[0].equals("concross")) {
-			HBaseTM hbasetm = new HBaseTM(args[1]);
-			hbasetm.schedulerCross(args[2], Integer.parseInt(args[3]));
-		} else if (args[0].equals("concrossscan")) {
-			HBaseTM hbasetm = new HBaseTM(args[1]);
-			hbasetm.schedulerScanCross(args[2], Integer.parseInt(args[3]));
-		} else if (args[0].equals("insertMatrixBySubject")) {
-			HBaseTM hbasetm = new HBaseTM(args[1]);
-			hbasetm.insert4MatrixBySubject(args[2], args[3], args[4], args[5], args[6], Long.parseLong(args[7]));
-		} else if (args[0].equals("insertMatrixByProbe")) {
-			HBaseTM hbasetm = new HBaseTM(args[1]);
-			hbasetm.insert4MatrixByProbe(args[2], args[3], args[4], args[5], Long.parseLong(args[6]));
-		} else if (args[0].equals("insertMatrixCross")) {
-			HBaseTM hbasetm = new HBaseTM(args[1]);
-			hbasetm.insert4MatrixCross(args[2], args[3], args[4], args[5], Long.parseLong(args[6]));
+			HBasePerfTest hbasetm = new HBasePerfTest(args[1]);
+			hbasetm.getRecord(args[2]);
 		} else {
 			System.out.println("please input an argument");
 			System.out.println("init for create a new table with a family info");
-			System.out.println("scanBySubject for scan a table and you also need input the table name, start row name, stop row name, maximum patient number");
-			System.out.println("scanByProbe for scan a table and you also need input the table name, start row name, stop row name, maximum probe number, cache size, patient list file");
-			System.out.println("insert for insert data into the table, parameter table name");
+			System.out.println("scan for scan a table and you also need input the table name, start row name, stop row name, maximum patient number");
 			System.out.println("insertMatrixBySubject for insert data into the table, parameter table name, data file, annotation file, patient file, cache size");
-			System.out.println("insertMatrixByProbe for insert data into the table, parameter table name, data file, annotation file, patient file, cache size");
 			System.out.println("get for getting record");
 			return;
 		}		
