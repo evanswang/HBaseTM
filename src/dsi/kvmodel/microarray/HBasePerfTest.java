@@ -75,7 +75,7 @@ public class HBasePerfTest {
 			HTableDescriptor microarrayTableDesc = new HTableDescriptor(
 					tablename);
 	//		HColumnDescriptor infoColDesc = new HColumnDescriptor(COL_FAMILY_INFO);	
-			HColumnDescriptor rawColDesc = new HColumnDescriptor(COL_FAMILY_RAW); 
+			HColumnDescriptor rawColDesc = new HColumnDescriptor(COL_FAMILY_RAW);
 			HColumnDescriptor logColDesc = new HColumnDescriptor(COL_FAMILY_LOG);
 			HColumnDescriptor meanColDesc = new HColumnDescriptor(COL_FAMILY_MEAN);
 			HColumnDescriptor medianColDesc = new HColumnDescriptor(COL_FAMILY_MEDIAN);
@@ -93,10 +93,6 @@ public class HBasePerfTest {
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
-	}
-
-	public void tableScan(String startrow, String stoprow, int threshold) {
-		tableScan(startrow, stoprow, threshold, 1000);
 	}
 
 	public void tableScan(String startrow, String stoprow, int threshold,
@@ -146,8 +142,12 @@ public class HBasePerfTest {
 		}
 
 	}
-
+	
 	public void getRecord(String filename) {
+		getRecord(filename, 1);
+	}
+
+	public void getRecord(String filename, int cache) {
 		ArrayList<String> patientList = new ArrayList<String>();
 		BufferedReader reader = null;
 		String line = null;
@@ -170,25 +170,51 @@ public class HBasePerfTest {
 		
 		long count = 0;
 		long ts = System.currentTimeMillis();
-		//List<Get> getlist = new ArrayList<Get>();
+		List<Get> getList = new ArrayList<Get>();
 		try {
 			for (String str : patientList) {
-				Get g = new Get(Bytes.toBytes(str));
-				g.addFamily(Bytes.toBytes(COL_FAMILY_RAW));
+				Get get = new Get(Bytes.toBytes(str));
+				get.addFamily(Bytes.toBytes(COL_FAMILY_RAW));
 				//g.setFilter(new ColumnPrefixFilter("A".getBytes()));
-				// getlist.add(g);
-				int psnum = 0;
-				MicroarrayTable.setScannerCaching(10);
-				Result r = MicroarrayTable.get(g);
+				getList.add(get);
+				
+				if (getList.size() == cache) {
+					int psnum = 0;
+					Result[] rr = MicroarrayTable.get(getList);
+					for (Result r : rr) {
+						for (Cell cell : r.rawCells()) {
+							psnum++;
+						}
+						if (psnum != 54675)
+							System.out
+									.println("getRecord incomplete probe set: "
+											+ Bytes.toString(r.getRow()) + " "
+											+ psnum);
+						System.out.println("getRecord result " + count++);
+						if (r.isEmpty())
+							System.out.println("no result");
+					}
+					getList.clear();
+				}
+			}
+			
+			int psnum = 0;
+			Result[] rr = MicroarrayTable.get(getList);
+			for (Result r : rr) {
 				for (Cell cell : r.rawCells()) {
 					psnum++;
 				}
 				if (psnum != 54675)
-					System.out.println("getRecord incomplete probe set: " + Bytes.toString(r.getRow()) + " " + psnum);
+					System.out
+							.println("getRecord incomplete probe set: "
+									+ Bytes.toString(r.getRow()) + " "
+									+ psnum);
 				System.out.println("getRecord result " + count++);
 				if (r.isEmpty())
 					System.out.println("no result");
 			}
+			getList.clear();
+			
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -215,10 +241,13 @@ public class HBasePerfTest {
 			HBasePerfTest.init(args[1]);
 		} else if (args[0].equals("scan")) {
 			HBasePerfTest hbasetm = new HBasePerfTest(args[1]);
-			hbasetm.tableScan(args[2], args[3], Integer.parseInt(args[4]));
+			hbasetm.tableScan(args[2], args[3], Integer.parseInt(args[4]), Integer.parseInt(args[5]));
 		} else if (args[0].equals("get")) {
 			HBasePerfTest hbasetm = new HBasePerfTest(args[1]);
 			hbasetm.getRecord(args[2]);
+		} else if (args[0].equals("getlist")) {
+			HBasePerfTest hbasetm = new HBasePerfTest(args[1]);
+			hbasetm.getRecord(args[2], Integer.parseInt(args[3]));
 		} else {
 			System.out.println("please input an argument");
 			System.out.println("init for create a new table with a family info");
@@ -229,3 +258,4 @@ public class HBasePerfTest {
 		}		
 	}
 }
+
